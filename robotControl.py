@@ -5,7 +5,7 @@ from spatialmath import SE2, base
 from coppeliaSincro import Cliente
 import math
 from math import pi,cos,sin,atan2
-
+from random import random
 
 class Robot(Cliente):
     
@@ -106,6 +106,9 @@ class Robot(Cliente):
     def sensing(self):
         if self.detectar_func:
           self.detectar_func(self)
+
+        dt = self.getDeltaT()
+        self.nueva_odometriaVel(dt)
         self.last_time = self.simTime # Actualizar antes que todo
 
     #### Movimiento
@@ -128,6 +131,13 @@ class Robot(Cliente):
         self.w_act = w
 
         self.mover(wR=wR, wL=wL)
+
+    def combinar_vel(self, v,w):
+        '''Combina las velocidades para dar una final.'''
+        if not hasattr(self,'velocidades'):
+            self.velocidades = [0,0]
+        
+        return self.velocidades
 
     def arco(self, v, radio):
         w = v/radio
@@ -220,7 +230,7 @@ class Robot(Cliente):
         e_dist = np.linalg.norm(e_pos)
 
         # Error de orientación
-        angle = atan2(e_pos[1], e_pos[0])  
+        angle = atan2(e_pos[1], e_pos[0])  # atan va de [-pi/2, pi]
 
         e_ang = angle - th
         e_ang = atan2(sin(e_ang), cos(e_ang)) # Correr asegurar el ángulo adecuao
@@ -327,8 +337,76 @@ class Robot(Cliente):
 
         self.desplazar(v,w)
         return completo
+    
+
+    # Comportamientos
+    def miedo(self):
+        '''Se aleja de cualquier objeto.'''
+        # Leer sensores
+        # Cambiar la dirección lejos de la detección
+
+        dis = self.leer_distancias()
+
+        lados = ar([ dis[0], d[1], d[3], d[4] ])
+        frente =  dis[3]
+
+        ganancias_lados = ar([ 0.1, 0.1, -0.1, -0.1  ])
+        ganancia_frente = -0.1
+
+        w = np.dot(lados, ganancias)
+        v = ganancia_frente*frente 
+
+        self.desplazar(v,w)
+
+    def curioso(self):
+        '''Se acerca a todo lo que ve.'''
+        # Leer sensores
+        # Cambiar la dirección hacia la detección
+
+        dis = self.leer_distancias()
+
+        lados = ar([ dis[0], d[1], d[3], d[4] ])
+        frente =  dis[3]
+
+        ganancias_lados = ar([ -0.1, -0.1, 0.1, 0.1  ])
+        ganancia_frente = 0.1
+
+        w = np.dot(lados, ganancias)
+        v = ganancia_frente*frente 
+
+        self.desplazar(v,w)
+
+    def interes(self, dir_g, v=0):
+        '''Intenta ir en una dirección.'''
+        if v == 0:
+            v = self.v_max*0.3
         
+        pos = self.postura ## Idealmente se haría con algún tipo de faro
+        #p_robot = pos[0:2]
+        th_robot = pos[2].item()
         
+        e = dir_g - th_robot
+        e = atan2(sin(e), cos(e))
+        
+        Ke = 0.2
+        w = Ke*e
+
+        self.desplazar(v,w)
+        
+    def deambular(self, v=0):
+        '''Anda sin rumbo específico.'''
+        if v == 0:
+            v = self.v_max*0.3
+        # Cambiar la direccion paulatinamente.
+        
+        alpha = 0.8
+        a = 3
+        b = a/2
+        dth = random()*a - b
+
+        w = alpha*self.w_act + (1-alpha)*dth
+
+        self.desplazar(v,w)
 
 if __name__ == "__main__":
   
@@ -365,8 +443,7 @@ if __name__ == "__main__":
 
   # Función que hace el trabajo de sysCall_sensing()
   def detectar(self):
-      dt = self.getDeltaT()
-      self.nueva_odometriaVel(dt)
+      
 
       print(self.leer_distancias())
   # Fin Celda 4
