@@ -7,7 +7,7 @@
 
 
 
-import b0RemoteApi
+from B0 import b0RemoteApi
 import time
 
 
