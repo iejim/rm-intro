@@ -1,0 +1,7 @@
+.env
+**/*.pyc
+__pycache__
+**/*.ipynb*
+.vscode
+**/*.dylib
+**/.DS_Store
