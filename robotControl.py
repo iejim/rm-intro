@@ -89,6 +89,7 @@ class Robot(Cliente):
         self.centro = self.getHandle("centro_cine")
         self.goal_dummy_handle = self.getHandle("Goal")
         
+        self.sonares = []
         for i in range(1,6):
             self.sonares.append(self.getHandle("Sonar%d"%i))
         
@@ -124,11 +125,13 @@ class Robot(Cliente):
         self.client.simxSetJointTargetVelocity(self.ML, wL, self.pub())
     
     def desplazar(self, v, w):
+        # Guardar
+        self.v_act =  v
+        self.w_act =  w
+        
         wR = (2*v+self.d*w)/(2*self.R) 
         wL = (2*v-self.d*w)/(2*self.R)
-        # Guardar
-        self.v_act = v
-        self.w_act = w
+        
 
         self.mover(wR=wR, wL=wL)
 
@@ -340,39 +343,47 @@ class Robot(Cliente):
     
 
     # Comportamientos
-    def miedo(self):
+    def miedo(self, v=0):
         '''Se aleja de cualquier objeto.'''
         # Leer sensores
         # Cambiar la dirección lejos de la detección
+        if v == 0:
+            v = self.v_max*0.3
 
         dis = self.leer_distancias()
 
-        lados = ar([ dis[0], d[1], d[3], d[4] ])
-        frente =  dis[3]
+        #lados = self.sonar_max - ar([ dis[0], dis[1], dis[3], dis[4] ]) #no incluir el frente
+        lados = self.sonar_max - dis #usar el frente para lograr girar si es solo este.
+        
+        frente = self.sonar_max - dis[2]
+        #print(lados)
+        print("F: %0.3f, L: %s" % (frente, lados))
+        ganancias_lados = ar([ 1, 2, 0.9, -2, -1 ]) * 0.5 #darle poco peso al frente.
+        ganancia_frente = 0.2
 
-        ganancias_lados = ar([ 0.1, 0.1, -0.1, -0.1  ])
-        ganancia_frente = -0.1
-
-        w = np.dot(lados, ganancias)
-        v = ganancia_frente*frente 
-
+        # Para combinarlos con otros, deberían ser solo el delta (sin suma)
+        w = np.dot(lados, ganancias_lados)
+        v = v - ganancia_frente*frente 
+        
         self.desplazar(v,w)
 
-    def curioso(self):
+    def curioso(self, v=0):
         '''Se acerca a todo lo que ve.'''
         # Leer sensores
         # Cambiar la dirección hacia la detección
+        if v == 0:
+            v = self.v_max*0.3
 
         dis = self.leer_distancias()
 
-        lados = ar([ dis[0], d[1], d[3], d[4] ])
-        frente =  dis[3]
+        lados = self.sonar_max - ar([ dis[0], dis[1], dis[3], dis[4] ])
+        frente =  self.sonar_max - dis[3]
 
-        ganancias_lados = ar([ -0.1, -0.1, 0.1, 0.1  ])
-        ganancia_frente = 0.1
+        ganancias_lados = ar([ -2, -1, 1, 2 ]) * 0.5
+        ganancia_frente = -0.4
 
-        w = np.dot(lados, ganancias)
-        v = ganancia_frente*frente 
+        w = np.dot(lados, ganancias_lados)
+        v = v + ganancia_frente*frente 
 
         self.desplazar(v,w)
 
@@ -388,7 +399,7 @@ class Robot(Cliente):
         e = dir_g - th_robot
         e = atan2(sin(e), cos(e))
         
-        Ke = 0.2
+        Ke = self.wander_gain
         w = Ke*e
 
         self.desplazar(v,w)
@@ -399,8 +410,8 @@ class Robot(Cliente):
             v = self.v_max*0.3
         # Cambiar la direccion paulatinamente.
         
-        alpha = 0.8
-        a = 3
+        alpha = self.wander_gain
+        a = 6
         b = a/2
         dth = random()*a - b
 
