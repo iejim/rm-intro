@@ -105,6 +105,10 @@ class Cliente:
               self.actuation() # Analogo a sysCall_actuation()
               self.sensing() # Analogo a sysCall_sensing()
           self.client.simxSpinOnce()
+          r = self.client.simxGetSimulationState(self.call())
+          if r[0] and r[1] ==0 : # Simulación detenida en Coppelia
+            print("Detenida en el Simulador")
+            break
     except Exception as e:
         self.client.simxStopSimulation(self.pub())
         raise(e)
