@@ -89,6 +89,7 @@ class Robot(Cliente):
         self.centro = self.getHandle("centro_cine")
         self.goal_dummy_handle = self.getHandle("Goal")
         
+        self.deambular_gain = 0.9
         self.sonares = []
         for i in range(1,6):
             self.sonares.append(self.getHandle("Sonar%d"%i))
@@ -132,6 +133,7 @@ class Robot(Cliente):
         wR = (2*v+self.d*w)/(2*self.R) 
         wL = (2*v-self.d*w)/(2*self.R)
         
+        #Filtrar aqui
 
         self.mover(wR=wR, wL=wL)
 
@@ -342,14 +344,49 @@ class Robot(Cliente):
         return completo
     
 
-    # Comportamientos
-    def miedo(self, v=0):
-        '''Se aleja de cualquier objeto.'''
+    # Comportamientos Pasivos (no mueven el robot)
+    def atraccion(self, v=0):
+        '''Controla para llegar a goal (x,y) controlando el arco.'''
+
+        if not hasattr(self,'atraccion_gains'):
+            self.atraccion_gains = {'K_w': 0.5, 'K_v':0.2}
+        
+        K_w = self.atraccion_gains['K_w']
+        K_v = self.atraccion_gains['K_v']
+
+        d_min = 0.01 # metros
+
+        pos = self.postura
+        p = pos[0:2]
+        th = pos[2].item()
+        #print(p, goal)
+        # TODO: revisar que goal sea array()
+
+        e_pos = goal - p 
+        e_dist = np.linalg.norm(e_pos)
+
+        # Error de orientación
+        angle = atan2(e_pos[1], e_pos[0])  # atan va de [-pi/2, pi]
+
+        e_ang = angle - th
+        e_ang = atan2(sin(e_ang), cos(e_ang)) # Correr asegurar el ángulo adecuao
+
+        # Ley de control
+        w = K_w*e_ang
+        #if v == None:
+        #  v = self.v_act
+        #print("G2G D: ", e_dist)
+        v = K_v*e_dist
+        if e_dist < d_min:
+          v = 0
+          w = 0
+
+        return (v,w)
+    
+    def evasion(self, v=0):
+        '''Cambia su direccion ante cualquier objeto.'''
         # Leer sensores
         # Cambiar la dirección lejos de la detección
-        if v == 0:
-            v = self.v_max*0.3
-
         dis = self.leer_distancias()
 
         #lados = self.sonar_max - ar([ dis[0], dis[1], dis[3], dis[4] ]) #no incluir el frente
@@ -357,12 +394,27 @@ class Robot(Cliente):
         
         frente = self.sonar_max - dis[2]
         #print(lados)
-        print("F: %0.3f, L: %s" % (frente, lados))
+        #print("F: %0.3f, L: %s" % (frente, lados))
         ganancias_lados = ar([ 1, 2, 0.9, -2, -1 ]) * 0.5 #darle poco peso al frente.
         ganancia_frente = 0.2
 
         # Para combinarlos con otros, deberían ser solo el delta (sin suma)
         w = np.dot(lados, ganancias_lados)
+        v = v
+
+        return (w,v)
+    
+    # Comportamientos Activos (sí mueven el robot)
+    def miedo(self, v=0):
+        '''Se aleja de cualquier objeto.'''
+        # Leer sensores
+        # Cambiar la dirección lejos de la detección
+        w, v = self.evasion()
+
+        # Alejarse si es necesario.
+        if v == 0:
+            v = self.v_max*0.3
+
         v = v - ganancia_frente*frente 
         
         self.desplazar(v,w)
@@ -399,7 +451,7 @@ class Robot(Cliente):
         e = dir_g - th_robot
         e = atan2(sin(e), cos(e))
         
-        Ke = self.wander_gain
+        Ke = self.deambular_gain
         w = Ke*e
 
         self.desplazar(v,w)
@@ -410,11 +462,11 @@ class Robot(Cliente):
             v = self.v_max*0.3
         # Cambiar la direccion paulatinamente.
         
-        alpha = self.wander_gain
+        alpha = self.deambular_gain
         a = 6
         b = a/2
         dth = random()*a - b
-
+        # Moving average
         w = alpha*self.w_act + (1-alpha)*dth
 
         self.desplazar(v,w)
