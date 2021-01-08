@@ -345,7 +345,7 @@ class Robot(Cliente):
     
 
     # Comportamientos Pasivos (no mueven el robot)
-    def atraccion(self, v=0):
+    def atraccion(self, goal, v=0):
         '''Controla para llegar a goal (x,y) controlando el arco.'''
 
         if not hasattr(self,'atraccion_gains'):
