@@ -383,7 +383,7 @@ class Robot(Cliente):
 
         return (v,w)
     
-    def evasion(self, v=0):
+    def evasion(self, v=0, d_min = 0.15):
         '''Cambia su direccion ante cualquier objeto.'''
         # Leer sensores
         # Cambiar la dirección lejos de la detección
@@ -395,12 +395,14 @@ class Robot(Cliente):
         frente = self.sonar_max - dis[2]
         #print(lados)
         #print("F: %0.3f, L: %s" % (frente, lados))
-        ganancias_lados = ar([ 1, 2, 0.9, -2, -1 ]) * 0.5 #darle poco peso al frente.
-        ganancia_frente = 0.5
+        ganancias_lados = ar([ 1, 2, 0.75, -2.2, -1 ]) * 0.5 #darle poco peso al frente.
+        
+        # Detiene al llegar a una d_min
+        ganancia_frente = v/(self.sonar_max-d_min)
 
         # Para combinarlos con otros, deberían ser solo el delta (sin suma)
         w = np.dot(lados, ganancias_lados)
-        v = v - ganancia_frente*w
+        v = v - ganancia_frente*frente
 
         return (v,w)
     
