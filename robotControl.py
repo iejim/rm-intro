@@ -472,6 +472,8 @@ class Robot(Cliente):
 
         self.desplazar(v,w)
 
+
+
 if __name__ == "__main__":
   
   # Celda 1: Función externa para extender la inicialización del Robot
@@ -484,7 +486,7 @@ if __name__ == "__main__":
   # Celda 2: Puntos objetivo para los recorridos del robot
   goal0 = ar([ [-0.88], [1.2] ])
   goal1 = ar([ [0.34], [-1.6] ])
-  goal2 = ar([ [1.44], [0.33] ])
+  goal2 = ar([ [1.55], [1.14] ])
   goal3 = ar([ [0.32], [1.67] ])
   # Fin Celda 2
 
