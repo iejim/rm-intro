@@ -396,26 +396,25 @@ class Robot(Cliente):
         #print(lados)
         #print("F: %0.3f, L: %s" % (frente, lados))
         ganancias_lados = ar([ 1, 2, 0.9, -2, -1 ]) * 0.5 #darle poco peso al frente.
-        ganancia_frente = 0.2
+        ganancia_frente = 0.5
 
         # Para combinarlos con otros, deberían ser solo el delta (sin suma)
         w = np.dot(lados, ganancias_lados)
-        v = v
+        v = v - ganancia_frente*w
 
-        return (w,v)
+        return (v,w)
     
     # Comportamientos Activos (sí mueven el robot)
     def miedo(self, v=0):
         '''Se aleja de cualquier objeto.'''
-        # Leer sensores
-        # Cambiar la dirección lejos de la detección
-        w, v = self.evasion()
 
         # Alejarse si es necesario.
         if v == 0:
             v = self.v_max*0.3
 
-        v = v - ganancia_frente*frente 
+        # Cambiar la dirección lejos de la detección
+        v, w = self.evasion(v)
+        v = v 
         
         self.desplazar(v,w)
 
