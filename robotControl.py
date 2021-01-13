@@ -183,12 +183,12 @@ class Robot(Cliente):
         p_n = T @ pk_n
         self.postura = self.postura + p_n
         # Guardar
-        self.h_posturas.append(self.postura)
+        self.h_posturas.append([self.simTime, self.postura])
 
     def forzar_postura(self,pos):
         # TODO: revisar si pos es array()
         self.postura = pos
-        self.h_posturas.append(self.postura)
+        self.h_posturas.append([self.simTime, self.postura])
 
     def nueva_odometriaVel(self, dt):
         dx = self.v_act*dt
