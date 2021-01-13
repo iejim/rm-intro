@@ -89,8 +89,19 @@ class Cliente:
     # if usarSim: # ...
 
     # Correr Sim
+    # Reiniciar la Sim si estaba pausada
+    r = self.client.simxGetSimulationState(self.call())
+    if r[0]:
+      if r[1] > 0 : # Simulación no detenida en Coppelia
+        self.client.simxStopSimulation(self.call()) #Detener
+        self.client.simxSpinOnce()
+    del r
+
+    time.sleep(1)
+    # Iniciar simulacion
     self.simTime = 0
-    self.client.simxStartSimulation(self.pub())
+
+    self.client.simxStartSimulation(self.call())
     if tiempo is None:
       tiempo = 1000
     startTime=time.time()
@@ -98,17 +109,23 @@ class Cliente:
     self.init() # Analogo a sysCall_init()
 
     try:
+      pausada = False
       while time.time()<startTime+tiempo: 
+          r = self.client.simxGetSimulationState(self.call())
+          if r[0]:
+            if r[1] ==0 : # Simulación detenida en Coppelia
+              print("Detenida en el Simulador")
+              break
+            elif r[1] == 8 :
+              if not pausada:
+                print("Pausada")
+                pausada = True
           if self.doNextStep:
               self.doNextStep=False
               self.client.simxSynchronousTrigger()
-              self.actuation() # Analogo a sysCall_actuation()
               self.sensing() # Analogo a sysCall_sensing()
+              self.actuation() # Analogo a sysCall_actuation()
           self.client.simxSpinOnce()
-          r = self.client.simxGetSimulationState(self.call())
-          if r[0] and r[1] ==0 : # Simulación detenida en Coppelia
-            print("Detenida en el Simulador")
-            break
     except Exception as e:
         self.client.simxStopSimulation(self.pub())
         raise(e)
@@ -117,6 +134,7 @@ class Cliente:
         self.client.simxPauseSimulation(self.pub())
         return 
     self.client.simxStopSimulation(self.pub())
+    print("Fin")
 
 
 
