@@ -35,6 +35,7 @@ class Robot(Cliente):
         self.sonar_max = 0.66
 
         # Odometría
+        self.postura_de_sim = False
         self.postura = ar([[0],[0],[0]])
 
         self.h_posturas = []
@@ -64,7 +65,15 @@ class Robot(Cliente):
     
     def setObjectPosition(self, obj, pos, rel_obj=-1):
         self.client.simxSetObjectPosition(obj, rel_obj, pos, self.pub())
-        
+
+    def getObjectOrientation(self, obj, rel_obj=-1, deg=False):
+        r = self.client.simxGetObjectOrientation(obj, rel_obj, self.call())
+        if r[0]: # success
+            if deg: 
+                d = ar(r[1])*180.0/pi
+                return d.tolist()
+            else:
+                return r[1] 
 
     def reset(self):
         self.postura = ar([[0],[0],[0]])
@@ -177,11 +186,23 @@ class Robot(Cliente):
     def histPostura(self):
         return self.h_posturas
 
-    def actualizar_postura(self, dx, dth):
+    def nueva_postura(self, dx, dth):
         pk_n = ar([[dx], [0.0], [dth]])
         T = base.trot2(self.postura[2]+dth)
         p_n = T @ pk_n
-        self.postura = self.postura + p_n
+        return self.postura + p_n
+
+    def postura_en_sim(self):
+        pos = self.getObjectPosition(self.centro)
+        ort = self.getObjectOrientation(self.centro)
+        return [ pos[0], pos[1], ort[2] ] # 2D
+
+    def actualizar_postura(self, dx, dth):
+        
+        if self.postura_de_sim:
+            self.postura = self.postura_en_sim()
+        else: 
+            self.postura = self.nueva_postura(dx, dth)
         # Guardar
         self.h_posturas.append([self.simTime, self.postura])
 
