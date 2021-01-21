@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-from numpy import array as ar
+from numpy import array
 from spatialmath import SE2, base
 from coppeliaSincro import Cliente
 import math
 from math import pi,cos,sin,atan2
 from random import random
+from msgpack import packb
 
 class Robot(Cliente):
     
@@ -36,7 +37,7 @@ class Robot(Cliente):
 
         # Odometría
         self.postura_de_sim = False
-        self.postura = ar([[0],[0],[0]])
+        self.postura = array([[0],[0],[0]])
 
         self.h_posturas = []
         
@@ -51,6 +52,8 @@ class Robot(Cliente):
         self.actuar_func = None
         self.detectar_func = None
         self.init_func = None
+
+        self.trayectoria = dict()
     
     def getHandle(self, nombre):
         r, h = self.client.simxGetObjectHandle(nombre, self.call()) # llamadas Bloquean la Sim
@@ -58,6 +61,7 @@ class Robot(Cliente):
             return h 
         return -1
     
+    # TODO: Devolver un vector columna (como la Postura)
     def getObjectPosition(self, obj, rel_obj=-1):
         r = self.client.simxGetObjectPosition(obj, rel_obj, self.call())
         if r[0]: # success
@@ -70,13 +74,17 @@ class Robot(Cliente):
         r = self.client.simxGetObjectOrientation(obj, rel_obj, self.call())
         if r[0]: # success
             if deg: 
-                d = ar(r[1])*180.0/pi
+                d = array(r[1])*180.0/pi
                 return d.tolist()
             else:
                 return r[1] 
+    
+    def vector(self, lista):
+        v = array(lista).reshape(len(lista), 1)
+        return v
 
     def reset(self):
-        self.postura = ar([[0],[0],[0]])
+        self.postura = array([[0],[0],[0]])
         self.h_posturas = [self.postura]
         self.last_time = 0
         self.v_act = 0
@@ -103,6 +111,8 @@ class Robot(Cliente):
         for i in range(1,6):
             self.sonares.append(self.getHandle("Sonar%d"%i))
         
+        
+
         self.reset() # TODO:¿Hacer opcional?
         # Llamar la función modificable (notebook)
         
@@ -187,7 +197,7 @@ class Robot(Cliente):
         return self.h_posturas
 
     def nueva_postura(self, dx, dth):
-        pk_n = ar([[dx], [0.0], [dth]])
+        pk_n = array([[dx], [0.0], [dth]])
         T = base.trot2(self.postura[2]+dth)
         p_n = T @ pk_n
         return self.postura + p_n
@@ -195,7 +205,7 @@ class Robot(Cliente):
     def postura_en_sim(self):
         pos = self.getObjectPosition(self.centro)
         ort = self.getObjectOrientation(self.centro)
-        return [ pos[0], pos[1], ort[2] ] # 2D
+        return self.vector([pos[0], pos[1], ort[2]]) # Vector postura 2D
 
     def actualizar_postura(self, dx, dth):
         
@@ -227,7 +237,12 @@ class Robot(Cliente):
 
     def actualizar_goal_pos(self, pos):
         p0 = self.getObjectPosition(self.goal_dummy_handle, rel_obj=self.centro)
-        p0[0:2] = pos[0:2]
+        
+        if type(pos) is np.ndarray:
+            nueva_p = pos[0:2].flatten().tolist()
+        else:
+            nueva_p = pos[0:2]
+        p0[0:2] = nueva_p
         self.setObjectPosition(self.goal_dummy_handle,p0, rel_obj=self.centro)
 
     #### Controladores
@@ -410,13 +425,13 @@ class Robot(Cliente):
         # Cambiar la dirección lejos de la detección
         dis = self.leer_distancias()
 
-        #lados = self.sonar_max - ar([ dis[0], dis[1], dis[3], dis[4] ]) #no incluir el frente
+        #lados = self.sonar_max - array([ dis[0], dis[1], dis[3], dis[4] ]) #no incluir el frente
         lados = self.sonar_max - dis #usar el frente para lograr girar si es solo este.
         
         frente = self.sonar_max - dis[2]
         #print(lados)
         #print("F: %0.3f, L: %s" % (frente, lados))
-        ganancias_lados = ar([ 1, 2, 0.75, -2.2, -1 ]) * 0.5 #darle poco peso al frente.
+        ganancias_lados = array([ 1, 2, 0.75, -2.2, -1 ]) * 0.5 #darle poco peso al frente.
         
         # Detiene al llegar a una d_min
         ganancia_frente = v/(self.sonar_max-d_min)
@@ -426,6 +441,7 @@ class Robot(Cliente):
         v = v - ganancia_frente*frente
 
         return (v,w)
+
     
     # Comportamientos Activos (sí mueven el robot)
     def miedo(self, v=0):
@@ -450,10 +466,10 @@ class Robot(Cliente):
 
         dis = self.leer_distancias()
 
-        lados = self.sonar_max - ar([ dis[0], dis[1], dis[3], dis[4] ])
+        lados = self.sonar_max - array([ dis[0], dis[1], dis[3], dis[4] ])
         frente =  self.sonar_max - dis[3]
 
-        ganancias_lados = ar([ -2, -1, 1, 2 ]) * 0.5
+        ganancias_lados = array([ -2, -1, 1, 2 ]) * 0.5
         ganancia_frente = -0.4
 
         w = np.dot(lados, ganancias_lados)
@@ -493,7 +509,170 @@ class Robot(Cliente):
 
         self.desplazar(v,w)
 
+    # Trayectorias
+    def distancia(self,a,b):
+        ''' Norma euclidiana entre dos listas (array-like), usando la dimensión de la primera.'''
+        
+        if len(a) == 0  or len(b) ==0:
+            return 0 # TODO: por ahora
+        s = 0
+        if type(a) is np.ndarray:
+            a = a.flatten()
+        if type(b) is np.ndarray:
+            b = b.flatten()
 
+        for i in range(len(a)):
+            s = s + (a[i]-b[i])**2
+        return math.sqrt(s)
+    
+    def pathLength_sim(self, path):
+        data = self.client.simxCallScriptFunction('sim.getPathLength',"sim.scripttype_sandboxscript",path, self.call())
+        if data[0]:
+            return data[1]
+        return 0
+
+    def analizarTrayectoria_sim(self):
+        path = self.trayectoria["path"] #TODO: trayectoria pudera ser una dict con [path, paso, lookahead]
+
+        L = self.pathLength_sim(path) # Extrae la longitud del path
+
+        # Longitudes relativas
+        paso = self.trayectoria["paso"]/L # Salto (cm) entre un punto y otro a buscar a lo largo del path
+        lookahead = self.trayectoria["lookahead"]/L
+
+        # Guardar en self.trayectoria (para uso interno sin crear nuevas variables)
+        self.trayectoria["paso_rel"] = paso
+        self.trayectoria["lookahead_rel"] = lookahead
+        self.trayectoria["length"] = L
+
+    def puntoEnPath_sim(self, path, rel_d):
+        # simxCallScriptFunction(string funcAtObjName, number/string scriptType, anyType funcArgs, string topic)
+        data = self.client.simxCallScriptFunction('posOnPath@Duckie',"sim.scripttype_childscript",dict(path=path,rel_d=rel_d), self.call())
+        # data = self.client.simxCallScriptFunction('sim.getPositionOnPath',"sim.scripttype_sandboxscript",[[path], [rel_d]], self.call())
+        if data[0]:
+            #print(data[1])
+            return self.vector(data[1][0:2])
+        return array([])
+
+    def goalEnTrayectoria_sim(self):
+        '''Busca un punto en una trayectoria en CoppeliaSim. Usa distancias relativas en vez de indices para encontrar punto.'''
+        
+        #TODO: hay que establecer cuándo se empieza a buscar otra vez,
+        #      tanto para agilizar, como para no agotar los puntos.
+        # Inicializar memorias ¿aquí?
+        if not "paso_rel" in self.trayectoria.keys():
+            self.analizarTrayectoria_sim()
+
+        if not "l_cercano" in self.trayectoria.keys():
+            self.trayectoria["l_cercano"] = 0
+            # self.trayectoria["l_goal"] = 0 # No es necesario si usamos Lookahead
+        
+        pos = self.postura[0:2]
+
+        path = self.trayectoria["path"]
+        paso = self.trayectoria["paso_rel"]
+        DL = self.trayectoria["lookahead_rel"]
+
+        ultima_l = self.trayectoria["l_cercano"] # Empezar donde nos quedamos
+        # Buscar Punto más cercano
+        #   Paso  a paso buscar el punto cuya distancia sea menor a la anterior
+        dist_vieja = 0
+        dist_nueva = -1
+        while dist_nueva < dist_vieja: 
+            # Buscar punto, clc distancias
+            ultima_l = ultima_l+paso
+            punto = self.puntoEnPath_sim(path,ultima_l) 
+            #TODO Revisar si punto es []
+            dist_vieja = dist_nueva
+            dist_nueva = self.distancia(pos,punto)
+
+        # Buscar goal
+        #   Buscar punto usando ultima_l + lookahead_relativo
+        goal = self.puntoEnPath_sim(path,ultima_l+DL)
+        # print(goal)
+        self.trayectoria["l_cercano"] = ultima_l #Actualizar
+        self.actualizar_goal_pos(goal)
+        return goal
+
+    def goalEnTrayectoria(self):
+        
+        tray = self.trayectoria["path"]
+
+        # Inicializar memorias ¿aquí?
+        if not "ind_cercano" in self.trayectoria.keys():
+            self.trayectoria["ind_cercano"] = 0
+            self.trayectoria["ind_goal"] = 0
+
+        total = self.trayectoria["puntos"]
+
+        ultimo_ind = self.trayectoria["ind_cercano"] # Ultimo sitio donde buscamos 
+        ultimo_goal = self.trayectoria["ind_goal"] # Ultimo punto usado para goal
+
+
+        if ultimo_goal >= total-1:
+            return tray[-1] # como señal de que no hay que buscar; (0,0) puede ser un goal
+
+        # Buscar más cercano
+        dist_ant = 0
+        dist_nueva = 0
+        while dist_nueva < dist_ant:
+            ind = ultimo_ind + 1
+            if ind >= total:
+                ind = total - 1  
+            punto = tray[ind]
+            dist_ant = dist_nueva
+            dist_nueva = self.distancia(pos,punto)
+            ultimo_ind = ind
+        
+        cerca = punto
+        self.trayectoria["ind_cercano"] = ultimo_ind
+
+        # Buscar el goal:
+        #   Empezando en el cercano, buscar el goal adecuado
+        #   TODO: Pudiera ser que nos ahorremos lo del cercano 
+        #   y solo busquemos un nuevo goal a una distancia L
+        dist_nueva = 0
+        L = self.trayectoria["lookahead"]
+        while dist_nueva < L:
+            ind = ultimo_goal + 1
+            if ind >= total:
+                ind = total - 1
+            punto = tray[ind]
+            dist_nueva = self.distancia(cerca,punto)
+            ultimo_goal = ind
+        
+        goal = punto
+        self.trayectoria["ind_goal"] = ultimo_goal
+
+        return goal
+
+
+    def seguirTrayectoria(self, v=0):
+        '''Sigue una trayectoria usando Pure Pursuit'''
+        #
+        if v == 0:
+            v = self.v_max*0.3
+        
+        # print(self.trayectoria)
+        pos = self.postura[0:2]
+        theta = self.postura[2]
+
+        goal = self.goalEnTrayectoria_sim()
+        # print("g ", goal)
+        # print("p ", pos)
+        #Generar el arco a un punto en la trayectoria
+        e = (goal - pos).flatten().tolist() # usa lista estandar
+        # print("e ", e)
+        # D = np.linalg.norm(e)
+        D2 = e[0]*e[0]+e[1]*e[1]  # Escalar (no array)
+        dY = e[0]*sin(theta) + e[1]*cos(theta)
+
+        gamma = -2*dY/D2
+
+        v = v
+        w = v*gamma
+
+        return (v,w)
 
 if __name__ == "__main__":
   
@@ -505,10 +684,10 @@ if __name__ == "__main__":
   # Fin Celda 1
 
   # Celda 2: Puntos objetivo para los recorridos del robot
-  goal0 = ar([ [-0.88], [1.2] ])
-  goal1 = ar([ [0.34], [-1.6] ])
-  goal2 = ar([ [1.55], [1.14] ])
-  goal3 = ar([ [0.32], [1.67] ])
+  goal0 = array([ [-0.88], [1.2] ])
+  goal1 = array([ [0.34], [-1.6] ])
+  goal2 = array([ [1.55], [1.14] ])
+  goal3 = array([ [0.32], [1.67] ])
   # Fin Celda 2
 
   # Celda 3: Función externa para extender la actuación del Robot
@@ -519,7 +698,7 @@ if __name__ == "__main__":
       '''Alcanzar cada uno de los puntos goal#, evitando obstáculos que se interpongan.'''
 
       self.go2goal(goal2)
-      #self.go2pose(ar([[0.48], [0.98],[1/6*math.pi]]))
+      #self.go2pose(array([[0.48], [0.98],[1/6*math.pi]]))
       p = self.postura
       print("%0.3f, v:%0.3f, w:%0.3f , (%0.3f,%0.3f,%0.3f)" % (self.simTime,self.v_act, self.w_act, p[0], p[1], p[2]))
 
